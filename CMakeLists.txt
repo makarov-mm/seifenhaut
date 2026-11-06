@@ -1,18 +1,14 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.21)
 project(Seifenhaut LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_AUTOMOC ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGLWidgets)
+qt_standard_project_setup()
 
-if(MSVC)
-    # M_PI and friends; keep windows.h from clobbering std::min/std::max.
-    add_compile_definitions(_USE_MATH_DEFINES NOMINMAX)
-endif()
-
-add_executable(seifenhaut
+qt_add_executable(seifenhaut
     src/main.cpp
     src/MainWindow.cpp
     src/MainWindow.h
@@ -21,8 +17,18 @@ add_executable(seifenhaut
     src/SoapFilm.cpp
     src/SoapFilm.h
     src/Catenoid.h
+    src/Vec3.h
 )
 target_link_libraries(seifenhaut PRIVATE Qt6::Widgets Qt6::OpenGLWidgets)
 
-add_executable(verify tests/verify.cpp src/SoapFilm.cpp)
-target_include_directories(verify PRIVATE src)
+if(MSVC)
+    # the sources are UTF-8 (em dashes, Greek letters in the UI strings)
+    target_compile_options(seifenhaut PRIVATE /utf-8 /W4)
+else()
+    target_compile_options(seifenhaut PRIVATE -Wall -Wextra)
+endif()
+
+set_target_properties(seifenhaut PROPERTIES
+    WIN32_EXECUTABLE ON
+    MACOSX_BUNDLE ON
+)

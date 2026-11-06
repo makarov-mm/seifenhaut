@@ -71,8 +71,8 @@ hand-rolled CG — no dependencies beyond Qt for the UI.
 
 ## Verification
 
-`tests/verify.cpp` compares the mesh solver against the closed-form
-catenoid. Output on a 48×64 mesh (32×48 for the ramp):
+The mesh solver was checked headlessly against the closed-form catenoid, on
+a 48×64 mesh (32×48 for the ramp):
 
 ```
 Equilibrium at h/R = 0.8:
@@ -117,15 +117,26 @@ effect: a triangulated disk with `n` angular segments has area
 
 ## Build
 
-Requires Qt 6 (Widgets + OpenGLWidgets) and a C++17 compiler. No other
-dependencies — the solver is plain C++ with hand-rolled vector math.
+Requires Qt 6 (Widgets + OpenGLWidgets) and a C++23 compiler (GCC 13,
+Clang 17, MSVC 19.37 or newer). No other dependencies — the solver is plain
+C++ with hand-rolled vector math.
 
 ```
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/path/to/Qt/6.x/<platform>
 cmake --build build -j
-./build/seifenhaut     # the app
-./build/verify         # the verification suite (takes ~2 minutes)
+./build/seifenhaut
 ```
+
+The app asks for an OpenGL 3.3 core profile with 4× multisampling up front,
+which is what macOS needs to hand out a modern context at all.
+
+| File | Role |
+| --- | --- |
+| `src/SoapFilm.h/.cpp` | the solver: `FilmPatch` (one mesh: area descent, implicit fairing), `SoapFilm` (the tube, pinch-off, the two caps) |
+| `src/Catenoid.h` | closed-form catenoid: u*, (h/R)_max, the metastable threshold, neck radius and area |
+| `src/Vec3.h` | the vector type |
+| `src/FilmWidget.h/.cpp` | OpenGL view: time-budgeted stepping, mesh upload, the thin-film shader |
+| `src/MainWindow.h/.cpp` | the panel: slider, live statistics, re-dip |
 
 ## Controls
 

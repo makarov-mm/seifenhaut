@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "Catenoid.h"
 #include "FilmWidget.h"
+
 #include <QCheckBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -8,18 +9,37 @@
 #include <QSlider>
 #include <QVBoxLayout>
 
+#include <numbers>
+
 namespace {
+
 constexpr double kSliderScale = 1000.0; // slider ticks per unit of h/R
-}
+constexpr double kMinSeparation = 0.20, kMaxSeparation = 1.45, kInitialSeparation = 0.80;
+
+QString fixed(double v, int decimals) { return QString::number(v, 'f', decimals); }
+
+} // namespace
 
 MainWindow::MainWindow() {
-    setWindowTitle("Seifenhaut — catenoid soap film");
-    auto* central = new QWidget;
-    auto* rootLayout = new QHBoxLayout(central);
+    setWindowTitle(QStringLiteral("Seifenhaut — catenoid soap film"));
 
     view_ = new FilmWidget;
+    auto* central = new QWidget;
+    auto* rootLayout = new QHBoxLayout(central);
     rootLayout->addWidget(view_, 1);
+    rootLayout->addWidget(buildPanel());
+    setCentralWidget(central);
 
+    connect(sepSlider_, &QSlider::valueChanged, this, [this](int v) {
+        const double h = v / kSliderScale;
+        sepValue_->setText(fixed(h, 3));
+        view_->setSeparation(h);
+    });
+    connect(dipButton_, &QPushButton::clicked, this, [this] { view_->reDip(); });
+    connect(view_, &FilmWidget::statsChanged, this, &MainWindow::refreshStats);
+}
+
+QWidget* MainWindow::buildPanel() {
     auto* panel = new QWidget;
     panel->setFixedWidth(300);
     auto* p = new QVBoxLayout(panel);
@@ -35,18 +55,16 @@ MainWindow::MainWindow() {
     p->addWidget(new QLabel("Ring separation h / R"));
     auto* sepRow = new QHBoxLayout;
     sepSlider_ = new QSlider(Qt::Horizontal);
-    sepSlider_->setRange(int(0.20 * kSliderScale), int(1.45 * kSliderScale));
-    sepSlider_->setValue(int(0.80 * kSliderScale));
-    sepValue_ = new QLabel("0.800");
+    sepSlider_->setRange(int(kMinSeparation * kSliderScale), int(kMaxSeparation * kSliderScale));
+    sepSlider_->setValue(int(kInitialSeparation * kSliderScale));
+    sepValue_ = new QLabel(fixed(kInitialSeparation, 3));
     sepValue_->setFixedWidth(48);
     sepRow->addWidget(sepSlider_);
     sepRow->addWidget(sepValue_);
     p->addLayout(sepRow);
 
-    auto* marks = new QLabel(
-        QString("metastable above %1\nno equilibrium above %2")
-            .arg(catenoid::rhoMetastable(), 0, 'f', 4)
-            .arg(catenoid::rhoMax(), 0, 'f', 4));
+    auto* marks = new QLabel(QStringLiteral("metastable above %1\nno equilibrium above %2")
+                                 .arg(fixed(catenoid::rhoMetastable(), 4), fixed(catenoid::rhoMax(), 4)));
     marks->setStyleSheet("color: gray;");
     p->addWidget(marks);
     p->addSpacing(12);
@@ -56,6 +74,7 @@ MainWindow::MainWindow() {
     areaLabel_ = new QLabel;
     for (QLabel* l : {stateLabel_, neckLabel_, areaLabel_}) {
         l->setTextFormat(Qt::RichText);
+        l->setWordWrap(true);
         p->addWidget(l);
     }
     p->addSpacing(12);
@@ -67,6 +86,8 @@ MainWindow::MainWindow() {
     p->addWidget(pauseBox);
     p->addWidget(wireBox);
     p->addStretch(1);
+    connect(pauseBox, &QCheckBox::toggled, view_, &FilmWidget::setPaused);
+    connect(wireBox, &QCheckBox::toggled, view_, &FilmWidget::setWireframe);
 
     auto* footer = new QLabel(
         "The film is a triangle mesh relaxed by\n"
@@ -78,23 +99,7 @@ MainWindow::MainWindow() {
     footer->setStyleSheet("color: gray;");
     footer->setWordWrap(true);
     p->addWidget(footer);
-
-    rootLayout->addWidget(panel);
-    setCentralWidget(central);
-
-    connect(sepSlider_, &QSlider::valueChanged, this, [this](int v) {
-        const double h = v / kSliderScale;
-        sepValue_->setText(QString::number(h, 'f', 3));
-        view_->setSeparation(h);
-    });
-    connect(dipButton_, &QPushButton::clicked, this,
-            [this] { view_->reDip(); });
-    connect(pauseBox, &QCheckBox::toggled, this,
-            [this](bool on) { view_->setPaused(on); });
-    connect(wireBox, &QCheckBox::toggled, this,
-            [this](bool on) { view_->setWireframe(on); });
-    connect(view_, &FilmWidget::statsChanged, this,
-            &MainWindow::refreshStats);
+    return panel;
 }
 
 void MainWindow::refreshStats() {
@@ -104,43 +109,24 @@ void MainWindow::refreshStats() {
     const double rho = h / R;
     const bool exists = rho < catenoid::rhoMax();
 
-    QString state, color;
-    if (f.pinched()) {
-        state = "collapsed — Goldschmidt solution (two disks)";
-        color = "#e05050";
-    } else if (!exists) {
-        state = "collapsing — no equilibrium exists";
-        color = "#e05050";
-    } else if (rho > catenoid::rhoMetastable()) {
-        state = "metastable — two disks already have less area";
-        color = "#d0a030";
-    } else {
-        state = "stable — global area minimum";
-        color = "#40b070";
-    }
-    stateLabel_->setText(
-        QString("<b>State:</b> <span style='color:%1'>%2</span>")
-            .arg(color, state));
+    const auto [state, color] = [&]() -> std::pair<QString, QString> {
+        if (f.pinched()) return {"collapsed — Goldschmidt solution (two disks)", "#e05050"};
+        if (!exists) return {"collapsing — no equilibrium exists", "#e05050"};
+        if (rho > catenoid::rhoMetastable()) return {"metastable — two disks already have less area", "#d0a030"};
+        return {"stable — global area minimum", "#40b070"};
+    }();
+    stateLabel_->setText(QStringLiteral("<b>State:</b> <span style='color:%1'>%2</span>").arg(color, state));
 
     if (f.pinched()) {
-        neckLabel_->setText("<b>Neck radius:</b> 0");
-        areaLabel_->setText(
-            QString("<b>Area:</b> %1 &nbsp;(2\u03C0R\u00B2 = %2)")
-                .arg(f.totalArea(), 0, 'f', 4)
-                .arg(2 * M_PI * R * R, 0, 'f', 4));
+        neckLabel_->setText(QStringLiteral("<b>Neck radius:</b> 0"));
+        areaLabel_->setText(QStringLiteral("<b>Area:</b> %1 &nbsp;(2πR² = %2)")
+                                .arg(fixed(f.totalArea(), 4), fixed(2 * std::numbers::pi * R * R, 4)));
     } else {
-        const QString analyticNeck =
-            exists ? QString::number(catenoid::neckRadius(h, R), 'f', 4)
-                   : QStringLiteral("\u2014");
-        const QString analyticArea =
-            exists ? QString::number(catenoid::area(h, R), 'f', 4)
-                   : QStringLiteral("\u2014");
-        neckLabel_->setText(QString("<b>Neck radius:</b> %1 &nbsp;(analytic %2)")
-                                .arg(f.neckRadius(), 0, 'f', 4)
-                                .arg(analyticNeck));
-        areaLabel_->setText(QString("<b>Area:</b> %1 &nbsp;(analytic %2)")
-                                .arg(f.totalArea(), 0, 'f', 4)
-                                .arg(analyticArea));
+        const QString dash = QStringLiteral("—");
+        neckLabel_->setText(QStringLiteral("<b>Neck radius:</b> %1 &nbsp;(analytic %2)")
+                                .arg(fixed(f.neckRadius(), 4), exists ? fixed(catenoid::neckRadius(h, R), 4) : dash));
+        areaLabel_->setText(QStringLiteral("<b>Area:</b> %1 &nbsp;(analytic %2)")
+                                .arg(fixed(f.totalArea(), 4), exists ? fixed(catenoid::area(h, R), 4) : dash));
     }
-    dipButton_->setEnabled(f.pinched() && rho < catenoid::rhoMax());
+    dipButton_->setEnabled(f.pinched() && exists);
 }
